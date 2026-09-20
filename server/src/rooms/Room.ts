@@ -3,6 +3,7 @@ import {
   ClueEntry,
   DEFAULT_SETTINGS,
   GamePhase,
+  InterimElimination,
   MAX_PLAYERS_HARD_CEIL,
   MIN_PLAYERS_HARD_FLOOR,
   PublicPlayer,
@@ -13,7 +14,7 @@ import {
   YourWordPayload,
 } from '../../../shared/types.js';
 import { pairHistoryKey, pickWordPair } from '../../../shared/wordBank.js';
-import { computeRoundScore } from '../game/scoring.js';
+import { computeRoundScore, POINTS_IMPOSTOR_ESCAPE, POINTS_IMPOSTOR_GUESS_BONUS } from '../game/scoring.js';
 import { generatePlayerId, generateToken, randomAvatar } from '../utils/id.js';
 
 export interface InternalPlayer {
@@ -27,6 +28,7 @@ export interface InternalPlayer {
   isConnected: boolean;
   isBot: boolean;
   isSpectator: boolean;
+  eliminated: boolean;
   score: number;
   role: 'innocent' | 'impostor' | null;
   word: string | null;
@@ -38,6 +40,7 @@ export interface InternalPlayer {
 const DISCONNECT_GRACE_MS = 45_000;
 const RECENT_PAIR_HISTORY = 40;
 const MAX_CLUE_LENGTH = 60;
+const ELIMINATION_ANNOUNCE_SEC = 5;
 
 export interface RoomCallbacks {
   broadcastState: (room: Room) => void;
@@ -62,6 +65,18 @@ function shuffle<T>(arr: T[]): T[] {
   return copy;
 }
 
+function normalizeWord(s: string): string {
+  return s.trim().toLowerCase();
+}
+
+interface VoteTally {
+  votesReceived: Record<string, number>;
+  voterMap: Record<string, string[]>;
+  eliminatedId: string | null;
+  tie: boolean;
+  noElimination: boolean;
+}
+
 export class Room {
   code: string;
   hostId: string;
@@ -70,11 +85,16 @@ export class Room {
   phase: GamePhase = 'lobby';
 
   matchRound = 0;
-  currentRound = 0;
+  /** Living roster for the current match — shrinks as players are voted out. */
   turnOrder: string[] = [];
+  /** Full roster dealt into the current match (never shrinks) — used for end-of-match scoring. */
+  matchPlayerIds: string[] = [];
+  eliminationCycle = 0;
+  clueGiro = 0;
   currentTurnIndex = 0;
   clues: ClueEntry[] = [];
   votes = new Map<string, string>();
+  eliminationHistory: { playerId: string; cycle: number }[] = [];
 
   impostorIds: string[] = [];
   innocentWord: string | null = null;
@@ -86,6 +106,7 @@ export class Room {
   phaseTimer: ReturnType<typeof setTimeout> | null = null;
 
   lastResult: RoundResult | null = null;
+  interimElimination: InterimElimination | null = null;
   gameOverWinnerIds: string[] | null = null;
 
   private botCounter = 0;
@@ -128,15 +149,14 @@ export class Room {
 
   private schedulePhaseTimeout(seconds: number, onExpire: () => void) {
     this.clearPhaseTimer();
-    if (seconds <= 0) {
-      this.phaseEndsAt = null;
-      return;
-    }
-    this.phaseEndsAt = Date.now() + seconds * 1000;
+    const clamped = Math.max(0, seconds);
+    this.phaseEndsAt = clamped > 0 ? Date.now() + clamped * 1000 : null;
+    // Even a "0 seconds" phase (e.g. discussion disabled) must still fire on
+    // the next tick rather than stall forever — schedule it, don't skip it.
     this.phaseTimer = setTimeout(() => {
       this.phaseTimer = null;
       onExpire();
-    }, seconds * 1000);
+    }, clamped * 1000);
   }
 
   // ---------- Player management ----------
@@ -183,6 +203,7 @@ export class Room {
       isConnected: true,
       isBot: false,
       isSpectator,
+      eliminated: false,
       score: 0,
       role: null,
       word: null,
@@ -276,11 +297,13 @@ export class Room {
     this.clearPhaseTimer();
     this.phase = 'lobby';
     this.lastResult = null;
+    this.interimElimination = null;
     this.gameOverWinnerIds = null;
     for (const p of this.players.values()) {
       p.isReady = p.isHost;
       p.role = null;
       p.word = null;
+      p.eliminated = false;
       p.isSpectator = false;
     }
     this.touch();
@@ -323,6 +346,7 @@ export class Room {
       isConnected: true,
       isBot: true,
       isSpectator: false,
+      eliminated: false,
       score: 0,
       role: null,
       word: null,
@@ -374,13 +398,13 @@ export class Room {
     }
     for (const p of this.players.values()) {
       p.score = 0;
-      p.isSpectator = p.isSpectator && false;
     }
     this.gameOverWinnerIds = null;
     this.matchRound = 0;
     this.beginRound();
   }
 
+  /** Starts a brand new match: fresh word pair, full roster, everyone un-eliminated. */
   private beginRound() {
     this.matchRound += 1;
     const active = this.activePlayers;
@@ -404,19 +428,25 @@ export class Room {
       const p = this.players.get(id)!;
       p.role = 'innocent';
       p.word = picked.innocentWord;
+      p.eliminated = false;
     }
     for (const id of this.impostorIds) {
       const p = this.players.get(id)!;
       p.role = 'impostor';
       p.word = picked.impostorWord;
+      p.eliminated = false;
     }
 
     this.clues = [];
     this.votes.clear();
     this.turnOrder = shuffle(shuffled);
-    this.currentRound = 1;
+    this.matchPlayerIds = [...this.turnOrder];
+    this.eliminationHistory = [];
+    this.eliminationCycle = 1;
+    this.clueGiro = 1;
     this.currentTurnIndex = 0;
     this.lastResult = null;
+    this.interimElimination = null;
     this.phase = 'clue';
 
     for (const p of this.players.values()) {
@@ -429,11 +459,24 @@ export class Room {
     this.touch();
   }
 
+  /** Resumes the SAME match/word with the current (shrunk) roster for another clue+vote cycle. */
+  private beginNextCycle() {
+    this.eliminationCycle += 1;
+    this.clueGiro = 1;
+    this.currentTurnIndex = 0;
+    this.clues = [];
+    this.votes.clear();
+    this.interimElimination = null;
+    this.phase = 'clue';
+    this.startClueTurnTimer();
+    this.touch();
+  }
+
   private startClueTurnTimer() {
     this.schedulePhaseTimeout(this.settings.clueTimeSec, () => {
       const currentId = this.turnOrder[this.currentTurnIndex];
       if (currentId) {
-        this.clues.push({ playerId: currentId, round: this.currentRound, text: '—' });
+        this.clues.push({ playerId: currentId, round: this.clueGiro, text: '—' });
       }
       this.advanceClueTurn();
       this.touch();
@@ -450,7 +493,16 @@ export class Room {
     if (this.turnOrder[this.currentTurnIndex] !== playerId) return;
     const clean = text.trim().slice(0, MAX_CLUE_LENGTH);
     if (!clean) return;
-    this.clues.push({ playerId, round: this.currentRound, text: clean });
+
+    const player = this.players.get(playerId);
+    if (player?.role === 'impostor' && this.innocentWord && normalizeWord(clean) === normalizeWord(this.innocentWord)) {
+      this.clearPhaseTimer();
+      this.clues.push({ playerId, round: this.clueGiro, text: clean });
+      this.endMatchImpostorGuessed(playerId);
+      return;
+    }
+
+    this.clues.push({ playerId, round: this.clueGiro, text: clean });
     this.advanceClueTurn();
     this.touch();
   }
@@ -459,9 +511,9 @@ export class Room {
     this.clearPhaseTimer();
     this.currentTurnIndex += 1;
     if (this.currentTurnIndex >= this.turnOrder.length) {
-      this.currentRound += 1;
+      this.clueGiro += 1;
       this.currentTurnIndex = 0;
-      if (this.currentRound > this.settings.clueRounds) {
+      if (this.clueGiro > this.settings.clueRounds) {
         this.beginDiscussion();
         return;
       }
@@ -523,10 +575,7 @@ export class Room {
     }
   }
 
-  private finishVoting() {
-    if (this.phase !== 'voting') return;
-    this.clearPhaseTimer();
-
+  private tallyVotes(): VoteTally {
     const votesReceived: Record<string, number> = {};
     const voterMap: Record<string, string[]> = {};
     for (const id of this.turnOrder) votesReceived[id] = 0;
@@ -557,11 +606,77 @@ export class Room {
       }
     }
 
-    const innocentIds = this.turnOrder.filter((id) => !this.impostorIds.includes(id));
+    return { votesReceived, voterMap, eliminatedId, tie, noElimination };
+  }
+
+  private finishVoting() {
+    if (this.phase !== 'voting') return;
+    this.clearPhaseTimer();
+
+    const tally = this.tallyVotes();
+    const { eliminatedId, tie, noElimination, votesReceived, voterMap } = tally;
+
+    if (eliminatedId) {
+      const eliminatedPlayer = this.players.get(eliminatedId);
+      if (eliminatedPlayer) eliminatedPlayer.eliminated = true;
+      this.turnOrder = this.turnOrder.filter((id) => id !== eliminatedId);
+      this.eliminationHistory.push({ playerId: eliminatedId, cycle: this.eliminationCycle });
+    }
+
+    const allImpostorsGone = this.impostorIds.every((id) => !this.turnOrder.includes(id));
+    const remainingInnocents = this.turnOrder.filter((id) => !this.impostorIds.includes(id)).length;
+
+    const voteResults: VoteResultEntry[] = Object.keys(votesReceived).map((id) => ({
+      targetId: id,
+      votes: votesReceived[id] ?? 0,
+      voterIds: voterMap[id] ?? [],
+    }));
     const votesObj: Record<string, string> = Object.fromEntries(this.votes.entries());
+
+    if (allImpostorsGone) {
+      this.endMatch({ eliminatedId, tie, noElimination, votesReceived, voteResults, votesObj });
+      return;
+    }
+
+    if (remainingInnocents <= 1) {
+      this.endMatch({ eliminatedId, tie, noElimination, votesReceived, voteResults, votesObj });
+      return;
+    }
+
+    // Inconclusive: continue the same word with the survivors. Never reveal
+    // words or role information here — only that this vote didn't end it.
+    this.interimElimination = {
+      cycle: this.eliminationCycle,
+      eliminatedId,
+      tie,
+      noElimination,
+      voteCounts: votesReceived,
+    };
+    this.phase = 'elimination';
+    this.schedulePhaseTimeout(ELIMINATION_ANNOUNCE_SEC, () => {
+      this.beginNextCycle();
+    });
+    this.touch();
+  }
+
+  private endMatch(params: {
+    eliminatedId: string | null;
+    tie: boolean;
+    noElimination: boolean;
+    votesReceived: Record<string, number>;
+    voteResults: VoteResultEntry[];
+    votesObj: Record<string, string>;
+  }) {
+    const innocentIds = this.matchPlayerIds.filter((id) => !this.impostorIds.includes(id));
     const { pointsAwarded, wasImpostorEliminated } = computeRoundScore(
-      { innocentIds, impostorIds: this.impostorIds, eliminatedId, votesReceived, noElimination },
-      votesObj,
+      {
+        innocentIds,
+        impostorIds: this.impostorIds,
+        eliminatedId: params.eliminatedId,
+        votesReceived: params.votesReceived,
+        noElimination: params.noElimination,
+      },
+      params.votesObj,
     );
 
     for (const [playerId, pts] of Object.entries(pointsAwarded)) {
@@ -569,24 +684,53 @@ export class Room {
       if (p) p.score += pts;
     }
 
-    const voteResults: VoteResultEntry[] = this.turnOrder.map((id) => ({
-      targetId: id,
-      votes: votesReceived[id] ?? 0,
-      voterIds: voterMap[id] ?? [],
-    }));
-
-    this.lastResult = {
+    this.finalizeMatch({
       impostorIds: [...this.impostorIds],
-      eliminatedId,
+      eliminatedId: params.eliminatedId,
       wasImpostorEliminated,
+      impostorGuessedWord: false,
       innocentWord: this.innocentWord!,
       impostorWord: this.impostorWord!,
       category: this.category!,
-      voteResults,
+      voteResults: params.voteResults,
+      eliminationHistory: [...this.eliminationHistory],
       pointsAwarded,
-      tie,
-      noElimination,
-    };
+      tie: params.tie,
+      noElimination: params.noElimination,
+    });
+  }
+
+  private endMatchImpostorGuessed(playerId: string) {
+    const pointsAwarded: Record<string, number> = {};
+    for (const id of this.impostorIds) {
+      pointsAwarded[id] = (pointsAwarded[id] ?? 0) + POINTS_IMPOSTOR_ESCAPE;
+    }
+    pointsAwarded[playerId] = (pointsAwarded[playerId] ?? 0) + POINTS_IMPOSTOR_GUESS_BONUS;
+
+    for (const [pid, pts] of Object.entries(pointsAwarded)) {
+      const p = this.players.get(pid);
+      if (p) p.score += pts;
+    }
+
+    this.finalizeMatch({
+      impostorIds: [...this.impostorIds],
+      eliminatedId: null,
+      wasImpostorEliminated: false,
+      impostorGuessedWord: true,
+      innocentWord: this.innocentWord!,
+      impostorWord: this.impostorWord!,
+      category: this.category!,
+      voteResults: [],
+      eliminationHistory: [...this.eliminationHistory],
+      pointsAwarded,
+      tie: false,
+      noElimination: false,
+    });
+  }
+
+  private finalizeMatch(result: RoundResult) {
+    this.lastResult = result;
+    this.interimElimination = null;
 
     const reachedPoints = [...this.players.values()].some((p) => p.score >= this.settings.pointsToWin);
     const reachedMaxRounds = this.settings.maxRounds > 0 && this.matchRound >= this.settings.maxRounds;
@@ -617,15 +761,20 @@ export class Room {
   private resetMatch() {
     this.phase = 'lobby';
     this.lastResult = null;
+    this.interimElimination = null;
     this.gameOverWinnerIds = null;
     this.matchRound = 0;
+    this.eliminationCycle = 0;
+    this.clueGiro = 0;
     this.clues = [];
     this.votes.clear();
+    this.eliminationHistory = [];
     this.impostorIds = [];
     for (const p of this.players.values()) {
       p.score = 0;
       p.role = null;
       p.word = null;
+      p.eliminated = false;
       p.isReady = p.isHost || p.isBot;
     }
     this.touch();
@@ -644,9 +793,10 @@ export class Room {
       isConnected: p.isConnected,
       isBot: p.isBot,
       isSpectator: p.isSpectator,
+      isEliminated: p.eliminated,
       score: p.score,
       hasVoted: this.votes.has(p.id),
-      hasSubmittedClue: this.clues.some((c) => c.playerId === p.id && c.round === this.currentRound),
+      hasSubmittedClue: this.clues.some((c) => c.playerId === p.id && c.round === this.clueGiro),
       joinedLate: p.joinedLate,
     };
   }
@@ -659,12 +809,14 @@ export class Room {
       settings: this.settings,
       players: [...this.players.values()].map((p) => this.toPublicPlayer(p)),
       matchRound: this.matchRound,
-      currentRound: this.currentRound,
+      eliminationCycle: this.eliminationCycle,
+      clueGiro: this.clueGiro,
       totalClueRounds: this.settings.clueRounds,
       currentTurnPlayerId: this.phase === 'clue' ? this.turnOrder[this.currentTurnIndex] ?? null : null,
       clues: this.clues,
       phaseEndsAt: this.phaseEndsAt,
       lastResult: this.lastResult,
+      interimElimination: this.interimElimination,
       category: this.phase === 'clue' || this.phase === 'discussion' || this.phase === 'voting' ? this.category : this.lastResult?.category ?? null,
       gameOverWinnerIds: this.gameOverWinnerIds,
     };

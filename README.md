@@ -102,11 +102,22 @@ CORS.
   innocenti/impostore "lontane" (o "vicine" in modalità avanzata), con
   cronologia anti-ripetizione ed esclusione di coppie banali/sinonimi.
 - Turni di indizi sequenziali con timer server-autorevole, fase di
-  discussione con chat di gruppo, votazione simultanea a voti nascosti,
-  reveal con dettaglio voti, entrambe le parole, impostore ed eliminato.
+  discussione con chat di gruppo, votazione simultanea a voti nascosti.
+- **Partita a eliminazione**: ogni round gioca la stessa coppia di parole
+  finché non succede una di queste tre cose — l'impostore viene votato fuori
+  (innocenti vincono), rimane un solo innocente in gioco (l'impostore vince),
+  oppure l'impostore scrive per errore la parola segreta esatta come proprio
+  indizio (l'impostore vince all'istante). Se un voto è inconcludente
+  (pareggio o nessuna eliminazione) o elimina un giocatore ma il round non è
+  ancora deciso, si vede solo un breve annuncio ("X è stato eliminato") senza
+  rivelare parole o ruoli, e si continua subito con un altro giro di indizi
+  sugli stessi due segreti. Il reveal completo (entrambe le parole,
+  identità dell'impostore, storico eliminazioni, voti) appare solo a fine
+  round.
 - Punteggio: innocenti premiati se eliminano l'impostore, impostore premiato
-  se sopravvive (con bonus se riceve zero voti); classifica live; fine
-  partita al raggiungimento del punteggio (o round massimi) impostato.
+  se sopravvive fino alla fine (con bonus se riceve zero voti nel voto
+  decisivo, o se indovina la parola); classifica live; fine partita al
+  raggiungimento del punteggio (o round massimi) impostato.
 - Bot IA per riempire slot mancanti: ricevono una parola come un giocatore
   normale, generano indizi plausibili dalla propria parola, votano senza mai
   leggere informazioni private altrui.

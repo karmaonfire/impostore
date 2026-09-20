@@ -49,7 +49,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
 
 export type WordMode = 'far' | 'close';
 
-export type GamePhase = 'lobby' | 'clue' | 'discussion' | 'voting' | 'reveal' | 'gameover';
+export type GamePhase = 'lobby' | 'clue' | 'discussion' | 'voting' | 'elimination' | 'reveal' | 'gameover';
 
 export interface RoomSettings {
   minPlayers: number;
@@ -102,6 +102,7 @@ export interface PublicPlayer {
   isConnected: boolean;
   isBot: boolean;
   isSpectator: boolean;
+  isEliminated: boolean;
   score: number;
   hasVoted: boolean;
   hasSubmittedClue: boolean;
@@ -124,13 +125,24 @@ export interface RoundResult {
   impostorIds: string[];
   eliminatedId: string | null;
   wasImpostorEliminated: boolean;
+  impostorGuessedWord: boolean;
   innocentWord: string;
   impostorWord: string;
   category: Category;
   voteResults: VoteResultEntry[];
+  eliminationHistory: { playerId: string; cycle: number }[];
   pointsAwarded: Record<string, number>;
   tie: boolean;
   noElimination: boolean;
+}
+
+/** Broadcast when a vote doesn't end the match — deliberately bare: no words, no role info. */
+export interface InterimElimination {
+  cycle: number;
+  eliminatedId: string | null;
+  tie: boolean;
+  noElimination: boolean;
+  voteCounts: Record<string, number>;
 }
 
 export interface PublicRoomState {
@@ -140,12 +152,14 @@ export interface PublicRoomState {
   settings: RoomSettings;
   players: PublicPlayer[];
   matchRound: number;
-  currentRound: number;
+  eliminationCycle: number;
+  clueGiro: number;
   totalClueRounds: number;
   currentTurnPlayerId: string | null;
   clues: ClueEntry[];
   phaseEndsAt: number | null;
   lastResult: RoundResult | null;
+  interimElimination: InterimElimination | null;
   category: Category | null;
   gameOverWinnerIds: string[] | null;
 }

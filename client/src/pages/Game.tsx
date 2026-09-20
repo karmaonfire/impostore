@@ -77,7 +77,9 @@ export default function Game({ onLeave }: { onLeave: () => void }) {
       <div className="game-topbar">
         <span className="room-code-mini">Stanza {roomState.code}</span>
         <span className="round-indicator">
-          Round {roomState.matchRound} {roomState.phase === 'clue' && `· Giro indizi ${roomState.currentRound}/${roomState.totalClueRounds}`}
+          Round {roomState.matchRound}
+          {roomState.eliminationCycle > 1 && ` · Ciclo ${roomState.eliminationCycle}`}
+          {roomState.phase === 'clue' && ` · Giro indizi ${roomState.clueGiro}/${roomState.totalClueRounds}`}
         </span>
         <button className="btn btn-ghost btn-tiny" onClick={onLeave}>
           🚪 Abbandona
@@ -106,6 +108,7 @@ export default function Game({ onLeave }: { onLeave: () => void }) {
             </div>
           )}
           {me?.isSpectator && <div className="banner">👁️ Sei in modalità spettatore</div>}
+          {me?.isEliminated && !me?.isSpectator && <div className="banner">☠️ Sei stato eliminato — segui il resto della partita come spettatore</div>}
 
           {roomState.phase === 'clue' && (
             <section>
@@ -166,14 +169,17 @@ export default function Game({ onLeave }: { onLeave: () => void }) {
             <section>
               <h2>🗳️ Votazione — chi è l&apos;impostore?</h2>
               <Timer endsAt={roomState.phaseEndsAt} label="Tempo votazione" />
-              {me?.hasVoted ? (
+              {me?.isEliminated ? (
+                <p className="hint">☠️ Sei stato eliminato in questa partita: segui la votazione come spettatore.</p>
+              ) : me?.hasVoted ? (
                 <p className="hint">
-                  Voto inviato. In attesa degli altri ({active.filter((p) => p.hasVoted).length}/{active.length})…
+                  Voto inviato. In attesa degli altri ({active.filter((p) => !p.isEliminated && p.hasVoted).length}/{active.filter((p) => !p.isEliminated).length})…
                 </p>
               ) : (
                 <>
                   <div className="vote-grid">
                     {active
+                      .filter((p) => !p.isEliminated)
                       .filter((p) => roomState.settings.allowSelfVote || p.id !== session.playerId)
                       .map((p) => (
                         <button
@@ -195,6 +201,8 @@ export default function Game({ onLeave }: { onLeave: () => void }) {
               )}
             </section>
           )}
+
+          {roomState.phase === 'elimination' && <EliminationSection />}
 
           {roomState.phase === 'reveal' && (
             <RevealSection revealing={revealing} onLeave={onLeave} amHost={amHost} />
@@ -234,6 +242,30 @@ function ClueBoard({ clues, players }: { clues: { playerId: string; round: numbe
   );
 }
 
+function EliminationSection() {
+  const roomState = useGameStore((s) => s.roomState)!;
+  const interim = roomState.interimElimination;
+  if (!interim) return null;
+  const eliminated = roomState.players.find((p) => p.id === interim.eliminatedId);
+  const remaining = roomState.players.filter((p) => !p.isSpectator && !p.isEliminated).length;
+
+  return (
+    <section className="reveal-section">
+      <div className="reveal-outcome outcome-neutral">
+        {interim.noElimination ? (
+          <h2>🤷 Nessuno eliminato {interim.tie ? '(pareggio)' : ''}</h2>
+        ) : (
+          <h2>{eliminated?.nickname ?? '???'} è stato eliminato</h2>
+        )}
+        <p className="hint">Non era l&apos;ultimo impostore: la partita continua con la stessa parola ({remaining} giocatori rimasti)…</p>
+      </div>
+      <div className="reveal-countdown">
+        <span className="reveal-countdown-dots">🔄</span>
+      </div>
+    </section>
+  );
+}
+
 function RevealSection({ revealing, onLeave, amHost }: { revealing: boolean; onLeave: () => void; amHost: boolean }) {
   const roomState = useGameStore((s) => s.roomState)!;
   const result = roomState.lastResult;
@@ -260,14 +292,25 @@ function RevealSection({ revealing, onLeave, amHost }: { revealing: boolean; onL
       )}
 
       <div className={`reveal-outcome ${result.wasImpostorEliminated ? 'outcome-good' : 'outcome-bad'}`}>
-        {result.noElimination ? (
-          <h2>🤷 Nessuno è stato eliminato ({result.tie ? 'pareggio' : 'zero voti'})</h2>
+        {result.impostorGuessedWord ? (
+          <h2>🎭 L&apos;impostore ha scritto la parola segreta! L&apos;impostore vince la partita.</h2>
+        ) : result.noElimination ? (
+          <h2>🤷 Rimasto un solo innocente: l&apos;impostore vince la partita ({result.tie ? 'pareggio' : 'zero voti'})</h2>
         ) : (
           <h2>
-            {eliminated?.nickname} è stato eliminato — {result.wasImpostorEliminated ? '🎉 Era l\'impostore!' : '😱 Non era l\'impostore!'}
+            {eliminated?.nickname} è stato eliminato — {result.wasImpostorEliminated ? '🎉 Era l\'impostore! Vincono gli innocenti.' : '😱 Non era l\'impostore! Vince l\'impostore.'}
           </h2>
         )}
       </div>
+
+      {result.eliminationHistory.length > 0 && (
+        <p className="hint">
+          Eliminati durante la partita:{' '}
+          {result.eliminationHistory
+            .map((e) => roomState.players.find((p) => p.id === e.playerId)?.nickname ?? '???')
+            .join(', ')}
+        </p>
+      )}
 
       <div className="word-reveal-row">
         <div className="word-reveal-card">

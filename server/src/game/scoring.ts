@@ -12,9 +12,10 @@ export interface ScoringOutput {
 }
 
 const POINTS_INNOCENT_WIN = 2;
-const POINTS_IMPOSTOR_ESCAPE = 3;
+export const POINTS_IMPOSTOR_ESCAPE = 3;
 const POINTS_IMPOSTOR_ZERO_VOTES_BONUS = 1;
 const POINTS_CORRECT_VOTE_BONUS = 1;
+export const POINTS_IMPOSTOR_GUESS_BONUS = 1;
 
 /**
  * Pure scoring function so the rules are easy to reason about / unit test

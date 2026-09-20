@@ -370,6 +370,11 @@ select {
   opacity: 0.5;
 }
 
+.player-row-eliminated {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
 .player-avatar {
   width: 34px;
   height: 34px;
@@ -666,6 +671,11 @@ select {
 .outcome-bad {
   background: rgba(248, 113, 113, 0.12);
   border: 1px solid var(--danger);
+}
+
+.outcome-neutral {
+  background: rgba(250, 204, 21, 0.1);
+  border: 1px solid var(--warn);
 }
 
 .word-reveal-row {

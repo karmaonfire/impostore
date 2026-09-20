@@ -16,7 +16,10 @@ export default function PlayerList({ players, hostId, myPlayerId, phase, current
   return (
     <ul className="player-list">
       {players.map((p) => (
-        <li key={p.id} className={`player-row ${p.id === currentTurnPlayerId ? 'player-row-turn' : ''} ${!p.isConnected ? 'player-row-offline' : ''}`}>
+        <li
+          key={p.id}
+          className={`player-row ${p.id === currentTurnPlayerId ? 'player-row-turn' : ''} ${!p.isConnected ? 'player-row-offline' : ''} ${p.isEliminated ? 'player-row-eliminated' : ''}`}
+        >
           <span className="player-avatar" style={{ background: p.avatarColor }}>
             {p.avatarEmoji}
           </span>
@@ -28,6 +31,7 @@ export default function PlayerList({ players, hostId, myPlayerId, phase, current
             {p.id === hostId && <span title="Host" className="badge badge-host">👑</span>}
             {p.isBot && <span title="Bot" className="badge">🤖</span>}
             {p.isSpectator && <span title="Spettatore" className="badge">👁️</span>}
+            {p.isEliminated && <span title="Eliminato" className="badge badge-warn">☠️ Eliminato</span>}
             {!p.isConnected && <span title="Disconnesso" className="badge badge-warn">⚠️</span>}
             {p.id === currentTurnPlayerId && <span title="Turno attuale" className="badge badge-turn">🎙️</span>}
             {showReady && phase === 'lobby' && !p.isSpectator && (

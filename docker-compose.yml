@@ -1,0 +1,9 @@
+services:
+  impostore:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - CLIENT_ORIGIN=*
+    restart: unless-stopped

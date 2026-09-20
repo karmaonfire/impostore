@@ -1,39 +1,10 @@
-import { ALL_CATEGORIES, Category, Difficulty, WordMode } from './types';
+import { ALL_CATEGORIES, Category, Difficulty } from './types';
 
 export interface WordEntry {
   word: string;
   tier: 1 | 2 | 3; // 1 = easy/common, 2 = normal, 3 = hard/rarer
-  hints: string[]; // used by AI bots as plausible one-word clues
+  hints: string[]; // related words — used as the impostor's secret hint, and by AI bots as plausible clues
 }
-
-// Categories that are thematically "close" to each other. Used to keep
-// impostor/innocent categories far apart in hard / "far" word mode, and to
-// pick a related category in "close" word mode.
-export const CATEGORY_CLOSENESS: Partial<Record<Category, Category[]>> = {
-  animali: ['natura'],
-  natura: ['animali', 'luoghi'],
-  cibo: ['bevande'],
-  bevande: ['cibo'],
-  film: ['serietv', 'personaggi'],
-  serietv: ['film', 'personaggi'],
-  personaggi: ['film', 'serietv', 'videogiochi'],
-  videogiochi: ['tecnologia', 'personaggi'],
-  tecnologia: ['videogiochi', 'lavoro'],
-  luoghi: ['paesi', 'citta', 'natura'],
-  paesi: ['luoghi', 'citta'],
-  citta: ['luoghi', 'paesi'],
-  scuola: ['lavoro'],
-  lavoro: ['scuola', 'tecnologia'],
-};
-
-// Pairs that must never be generated together even across different
-// categories, because they're too obviously linked (avoid "banal" pairs).
-const FORBIDDEN_PAIRS = new Set<string>([
-  'cane|gatto', 'gatto|cane',
-  'mare|spiaggia', 'spiaggia|mare',
-  'sole|luna', 'luna|sole',
-  'pizza|pasta', 'pasta|pizza',
-]);
 
 function w(word: string, tier: 1 | 2 | 3, hints: string[]): WordEntry {
   return { word, tier, hints };
@@ -242,10 +213,6 @@ export const WORD_BANK: Record<Category, WordEntry[]> = {
   ],
 };
 
-function pairKey(a: string, b: string) {
-  return `${a.toLowerCase()}|${b.toLowerCase()}`;
-}
-
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -264,16 +231,21 @@ function eligibleWords(category: Category, maxTier: number): WordEntry[] {
 export interface PickPairOptions {
   categories: Category[] | 'random';
   difficulty: Difficulty;
-  wordMode: WordMode;
-  recentPairs: string[]; // "word|word" lowercase, most recent first
+  recentWords: string[]; // lowercase innocent words, most recent first
 }
 
 export interface PickedPair {
   innocentWord: string;
-  impostorWord: string;
+  /** A word related to innocentWord (one of its own hints) — the impostor's only lead. */
+  impostorHint: string;
   category: Category;
 }
 
+/**
+ * The impostor never gets a rival word from a different topic — they get one
+ * of the innocent word's own associated hints, so their clues can plausibly
+ * connect to the real thing without ever revealing the category to them.
+ */
 export function pickWordPair(opts: PickPairOptions): PickedPair {
   const pool: Category[] =
     opts.categories === 'random' || opts.categories.length === 0
@@ -281,52 +253,23 @@ export function pickWordPair(opts: PickPairOptions): PickedPair {
       : opts.categories;
 
   const maxTier = maxTierFor(opts.difficulty);
-  const recentSet = new Set(opts.recentPairs);
+  const recentSet = new Set(opts.recentWords);
 
   for (let attempt = 0; attempt < 40; attempt++) {
     const innocentCategory = pickRandom(pool);
-    const innocentWords = eligibleWords(innocentCategory, maxTier);
-    const innocentWord = pickRandom(innocentWords).word;
+    const innocentEntry = pickRandom(eligibleWords(innocentCategory, maxTier));
+    if (recentSet.has(innocentEntry.word.toLowerCase())) continue;
+    if (innocentEntry.hints.length === 0) continue;
 
-    let impostorCategory: Category;
-    const forceFar = opts.wordMode === 'far' || opts.difficulty === 'hard';
-
-    if (forceFar) {
-      const close = new Set(CATEGORY_CLOSENESS[innocentCategory] ?? []);
-      close.add(innocentCategory);
-      const farCandidates = ALL_CATEGORIES.filter((c) => !close.has(c));
-      impostorCategory = farCandidates.length > 0 ? pickRandom(farCandidates) : pickRandom(ALL_CATEGORIES.filter((c) => c !== innocentCategory));
-    } else {
-      const closeCandidates = CATEGORY_CLOSENESS[innocentCategory] ?? [];
-      impostorCategory = closeCandidates.length > 0 && Math.random() < 0.6
-        ? pickRandom(closeCandidates)
-        : innocentCategory;
-    }
-
-    const impostorWords = eligibleWords(impostorCategory, maxTier).filter(
-      (e) => e.word.toLowerCase() !== innocentWord.toLowerCase(),
-    );
-    if (impostorWords.length === 0) continue;
-    const impostorWord = pickRandom(impostorWords).word;
-
-    const key = pairKey(innocentWord, impostorWord);
-    if (FORBIDDEN_PAIRS.has(key)) continue;
-    if (recentSet.has(key)) continue;
-
-    return { innocentWord, impostorWord, category: innocentCategory };
+    const impostorHint = pickRandom(innocentEntry.hints);
+    return { innocentWord: innocentEntry.word, impostorHint, category: innocentCategory };
   }
 
-  // Fallback: just pick anything non-equal, ignore history to avoid infinite loops.
+  // Fallback: ignore history to avoid ever getting stuck.
   const innocentCategory = pickRandom(pool);
-  const innocentWord = pickRandom(WORD_BANK[innocentCategory]).word;
-  const otherCategories = ALL_CATEGORIES.filter((c) => c !== innocentCategory);
-  const impostorCategory = pickRandom(otherCategories);
-  const impostorWord = pickRandom(WORD_BANK[impostorCategory]).word;
-  return { innocentWord, impostorWord, category: innocentCategory };
-}
-
-export function pairHistoryKey(innocentWord: string, impostorWord: string): string {
-  return pairKey(innocentWord, impostorWord);
+  const innocentEntry = pickRandom(WORD_BANK[innocentCategory]);
+  const impostorHint = pickRandom(innocentEntry.hints);
+  return { innocentWord: innocentEntry.word, impostorHint, category: innocentCategory };
 }
 
 export function findHints(word: string): string[] {

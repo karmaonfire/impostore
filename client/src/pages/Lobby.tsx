@@ -124,16 +124,13 @@ export default function Lobby({ onLeave }: { onLeave: () => void }) {
               <ul className="settings-summary">
                 <li>Giocatori: {roomState.settings.minPlayers}–{roomState.settings.maxPlayers}</li>
                 <li>Impostori: {roomState.settings.numImpostors}</li>
-                <li>Round di indizi: {roomState.settings.clueRounds}</li>
-                <li>Tempo indizio: {roomState.settings.clueTimeSec}s</li>
-                <li>Tempo discussione: {roomState.settings.discussionTimeSec}s</li>
+                <li>Numero di round: {roomState.settings.clueRounds}</li>
+                <li>Tempo per parola: {roomState.settings.clueTimeSec}s</li>
                 <li>Tempo votazione: {roomState.settings.votingTimeSec}s</li>
                 <li>Voto a se stessi: {roomState.settings.allowSelfVote ? 'sì' : 'no'}</li>
                 <li>Pareggio ammesso: {roomState.settings.allowTie ? 'sì' : 'no'}</li>
-                <li>Punti per vincere: {roomState.settings.pointsToWin}</li>
                 <li>Difficoltà: {roomState.settings.difficulty}</li>
                 <li>Categorie: {categoriesLabel}</li>
-                <li>Modalità parole: {roomState.settings.wordMode === 'far' ? 'molto diverse' : 'più vicine'}</li>
                 <li>Stanza: {roomState.settings.isPublic ? 'pubblica' : 'privata'}</li>
                 <li>Ingresso a partita iniziata: {roomState.settings.allowLateJoin ? 'sì' : 'no'}</li>
               </ul>

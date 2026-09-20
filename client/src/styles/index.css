@@ -497,6 +497,13 @@ select {
   letter-spacing: 1px;
 }
 
+.word-caption {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
 .word-value {
   font-size: 2.4rem;
   font-weight: 800;

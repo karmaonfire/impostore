@@ -7,7 +7,6 @@ import {
   RoomSettings,
   ServerToClientEvents,
 } from '../../../shared/types.js';
-import { generatePlayerId } from '../utils/id.js';
 import { botClueDelayMs, botDecideVote, botGenerateClue, botVoteDelayMs } from '../game/ai.js';
 import { Room, RoomCallbacks } from '../rooms/Room.js';
 import { RoomManager } from '../rooms/RoomManager.js';
@@ -23,7 +22,13 @@ type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<strin
 export function createRoomManager(io: AppServer): RoomManager {
   const callbacks: RoomCallbacks = {
     broadcastState: (room: Room) => {
-      io.to(room.code).emit('room_state', room.toPublicState());
+      // Per-player, not a single room-wide emit: the impostor's view must
+      // omit the category, which a shared broadcast object couldn't do.
+      for (const player of room.players.values()) {
+        if (player.socketId) {
+          io.to(player.socketId).emit('room_state', room.toPublicState(player.id));
+        }
+      }
     },
     sendYourWord: (room, playerId, payload) => {
       const socketId = room.getSocketId(playerId);
@@ -205,23 +210,6 @@ export function registerSocketHandlers(io: AppServer, roomManager: RoomManager) 
     socket.on('kick_player', (playerId: string) => {
       const room = getCurrentRoom();
       if (room && socket.data.playerId) room.kickPlayer(socket.data.playerId, (playerId ?? '').toString());
-    });
-
-    socket.on('send_chat_message', (text: string) => {
-      const room = getCurrentRoom();
-      const playerId = socket.data.playerId;
-      if (!room || !playerId) return;
-      const player = room.players.get(playerId);
-      if (!player) return;
-      const clean = (text ?? '').toString().trim().slice(0, 200);
-      if (!clean) return;
-      io.to(room.code).emit('chat_message', {
-        id: generatePlayerId(),
-        playerId,
-        nickname: player.nickname,
-        text: clean,
-        ts: Date.now(),
-      });
     });
 
     socket.on('disconnect', () => {

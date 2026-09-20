@@ -13,40 +13,41 @@ export default function HowToPlay() {
         <h2>🎭 Il concetto</h2>
         <p>
           Ogni partita ha un gruppo di <strong>innocenti</strong> e almeno un <strong>impostore</strong>. Tutti gli
-          innocenti ricevono la stessa parola segreta; l&apos;impostore riceve una parola diversa — non un sinonimo,
-          ma abbastanza diversa da rendere difficile capire subito quella degli innocenti.
+          innocenti ricevono la stessa parola segreta. L&apos;impostore non la conosce: riceve invece un
+          <strong> suggerimento</strong> collegato a quella parola, abbastanza vicino da aiutarlo a intuire di cosa si
+          tratta e a inventare parole plausibili, ma non la parola stessa. L&apos;impostore non sa nemmeno a quale
+          categoria appartiene la parola.
         </p>
       </section>
 
       <section className="howto-section">
-        <h2>🗣️ Indizi</h2>
+        <h2>🗣️ Le parole</h2>
         <p>
-          A turno, ogni giocatore dice una sola parola come indizio legata alla propria parola. Gli innocenti cercano
-          di dimostrare (senza essere troppo espliciti) di conoscere la parola comune. L&apos;impostore deve
-          improvvisare un indizio plausibile ascoltando gli altri, cercando di capire la parola degli innocenti.
+          A turno, ogni giocatore dice una sola parola legata alla parola segreta (o, per l&apos;impostore, al proprio
+          suggerimento). Gli innocenti cercano di dimostrare — senza essere troppo espliciti — di conoscere la parola
+          comune. L&apos;impostore deve improvvisare, ascoltando gli altri per capire di cosa si sta parlando, senza
+          farsi scoprire.
         </p>
-      </section>
-
-      <section className="howto-section">
-        <h2>💬 Discussione</h2>
-        <p>Dopo gli indizi si apre una fase di discussione libera per confrontarsi su chi sembra sospetto.</p>
       </section>
 
       <section className="howto-section">
         <h2>🗳️ Votazione</h2>
         <p>
-          Ogni giocatore vota simultaneamente chi pensa sia l&apos;impostore. I voti restano nascosti fino alla fine,
-          poi vengono rivelati insieme all&apos;identità dell&apos;impostore e a entrambe le parole.
+          Dopo i round di parole, ogni giocatore vota simultaneamente chi pensa sia l&apos;impostore. I voti restano
+          nascosti fino alla fine. Se il voto non elimina l&apos;impostore, la partita continua subito con un altro
+          giro sulla stessa parola e i giocatori rimasti — senza rivelare nulla.
         </p>
       </section>
 
       <section className="howto-section">
-        <h2>🏆 Punteggio</h2>
-        <p>
-          Se l&apos;impostore viene eliminato, gli innocenti guadagnano punti. Se l&apos;impostore sopravvive (o c&apos;è
-          pareggio), è l&apos;impostore a guadagnare punti — con un bonus se non riceve nemmeno un voto. Vince chi
-          raggiunge per primo il punteggio impostato dall&apos;host.
-        </p>
+        <h2>🏁 Come finisce</h2>
+        <p>La partita si conclude in uno di questi tre modi:</p>
+        <ul>
+          <li>l&apos;impostore viene votato fuori → vincono gli innocenti;</li>
+          <li>si arriva a un solo innocente rimasto in gioco → vince l&apos;impostore;</li>
+          <li>l&apos;impostore scrive per sbaglio (o per genio) la parola segreta esatta → vince subito l&apos;impostore.</li>
+        </ul>
+        <p>A quel punto vengono rivelate la parola, il suggerimento e l&apos;identità dell&apos;impostore, e si torna alla lobby per iniziare una nuova partita.</p>
       </section>
     </div>
   );

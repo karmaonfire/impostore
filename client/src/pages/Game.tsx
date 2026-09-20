@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChatMessage } from '@shared/types';
 import PlayerList from '../components/PlayerList';
 import Timer from '../components/Timer';
 import { socket } from '../socket';
@@ -17,19 +16,8 @@ export default function Game({ onLeave }: { onLeave: () => void }) {
 
   const [clueText, setClueText] = useState('');
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
-  const [chat, setChat] = useState<ChatMessage[]>([]);
-  const [chatText, setChatText] = useState('');
   const [revealing, setRevealing] = useState(false);
   const prevPhase = useRef(roomState.phase);
-  const chatEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const onChat = (msg: ChatMessage) => setChat((c) => [...c.slice(-199), msg]);
-    socket.on('chat_message', onChat);
-    return () => {
-      socket.off('chat_message', onChat);
-    };
-  }, []);
 
   useEffect(() => {
     if (roomState.phase === 'reveal' && prevPhase.current !== 'reveal') {
@@ -38,15 +26,10 @@ export default function Game({ onLeave }: { onLeave: () => void }) {
       return () => clearTimeout(t);
     }
     if (roomState.phase === 'clue' && prevPhase.current !== 'clue') {
-      setChat([]);
       setSelectedVote(null);
     }
     prevPhase.current = roomState.phase;
   }, [roomState.phase]);
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chat]);
 
   const me = roomState.players.find((p) => p.id === session.playerId);
   const amHost = roomState.hostId === session.playerId;
@@ -65,21 +48,13 @@ export default function Game({ onLeave }: { onLeave: () => void }) {
     socket.emit('submit_vote', selectedVote);
   }
 
-  function sendChat() {
-    const text = chatText.trim();
-    if (!text) return;
-    socket.emit('send_chat_message', text);
-    setChatText('');
-  }
-
   return (
     <div className="page game-page">
       <div className="game-topbar">
         <span className="room-code-mini">Stanza {roomState.code}</span>
         <span className="round-indicator">
-          Round {roomState.matchRound}
-          {roomState.eliminationCycle > 1 && ` · Ciclo ${roomState.eliminationCycle}`}
-          {roomState.phase === 'clue' && ` · Giro indizi ${roomState.clueGiro}/${roomState.totalClueRounds}`}
+          {roomState.eliminationCycle > 1 && `Ciclo ${roomState.eliminationCycle} · `}
+          {roomState.phase === 'clue' && `Round ${roomState.clueGiro}/${roomState.totalClueRounds}`}
         </span>
         <button className="btn btn-ghost btn-tiny" onClick={onLeave}>
           🚪 Abbandona
@@ -103,8 +78,9 @@ export default function Game({ onLeave }: { onLeave: () => void }) {
           {yourWord && !me?.isSpectator && (
             <div className={`word-card word-card-${yourWord.role}`}>
               <span className="word-role">{yourWord.role === 'impostor' ? '🎭 Sei l\'IMPOSTORE' : '🙂 Sei un INNOCENTE'}</span>
+              <span className="word-caption">{yourWord.role === 'impostor' ? 'Il tuo suggerimento' : 'La tua parola'}</span>
               <span className="word-value">{yourWord.word}</span>
-              <span className="word-category">Categoria: {yourWord.category}</span>
+              {yourWord.category && <span className="word-category">Categoria: {yourWord.category}</span>}
             </div>
           )}
           {me?.isSpectator && <div className="banner">👁️ Sei in modalità spettatore</div>}
@@ -113,16 +89,16 @@ export default function Game({ onLeave }: { onLeave: () => void }) {
           {roomState.phase === 'clue' && (
             <section>
               <h2>
-                {isMyTurn ? '🎙️ Tocca a te! Scrivi un indizio (una sola parola)' : `In attesa di ${playerName(roomState.players, roomState.currentTurnPlayerId)}…`}
+                {isMyTurn ? '🎙️ Tocca a te! Scrivi una parola' : `In attesa di ${playerName(roomState.players, roomState.currentTurnPlayerId)}…`}
               </h2>
-              <Timer endsAt={roomState.phaseEndsAt} label="Tempo indizio" />
+              <Timer endsAt={roomState.phaseEndsAt} label="Tempo" />
               {isMyTurn && (
                 <div className="clue-input-row">
                   <input
                     autoFocus
                     maxLength={60}
                     value={clueText}
-                    placeholder="Il tuo indizio…"
+                    placeholder="La tua parola…"
                     onChange={(e) => setClueText(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && submitClue()}
                   />
@@ -132,36 +108,6 @@ export default function Game({ onLeave }: { onLeave: () => void }) {
                 </div>
               )}
               <ClueBoard clues={roomState.clues} players={roomState.players} />
-            </section>
-          )}
-
-          {roomState.phase === 'discussion' && (
-            <section>
-              <h2>💬 Discussione</h2>
-              <Timer endsAt={roomState.phaseEndsAt} label="Tempo discussione" />
-              <ClueBoard clues={roomState.clues} players={roomState.players} />
-              <div className="chat-box">
-                <div className="chat-messages">
-                  {chat.map((m) => (
-                    <div key={m.id} className="chat-message">
-                      <strong>{m.nickname}:</strong> {m.text}
-                    </div>
-                  ))}
-                  <div ref={chatEndRef} />
-                </div>
-                <div className="chat-input-row">
-                  <input
-                    maxLength={200}
-                    value={chatText}
-                    placeholder="Scrivi un messaggio…"
-                    onChange={(e) => setChatText(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && sendChat()}
-                  />
-                  <button className="btn btn-secondary" onClick={sendChat}>
-                    Invia
-                  </button>
-                </div>
-              </div>
             </section>
           )}
 
@@ -214,13 +160,13 @@ export default function Game({ onLeave }: { onLeave: () => void }) {
 }
 
 function ClueBoard({ clues, players }: { clues: { playerId: string; round: number; text: string }[]; players: { id: string; nickname: string; avatarEmoji: string; avatarColor: string }[] }) {
-  if (clues.length === 0) return <p className="hint">Nessun indizio ancora.</p>;
+  if (clues.length === 0) return <p className="hint">Nessuna parola ancora.</p>;
   const rounds = [...new Set(clues.map((c) => c.round))];
   return (
     <div className="clue-board">
       {rounds.map((round) => (
         <div key={round} className="clue-round">
-          <h4>Giro {round}</h4>
+          <h4>Round {round}</h4>
           <div className="clue-chips">
             {clues
               .filter((c) => c.round === round)
@@ -281,16 +227,9 @@ function RevealSection({ revealing, onLeave, amHost }: { revealing: boolean; onL
   }
 
   const eliminated = roomState.players.find((p) => p.id === result.eliminatedId);
-  const sortedScoreboard = [...roomState.players].filter((p) => !p.isSpectator).sort((a, b) => b.score - a.score);
 
   return (
     <section className="reveal-section">
-      {roomState.gameOverWinnerIds && (
-        <div className="banner banner-win">
-          🏆 Partita terminata! Vince: {sortedScoreboard.filter((p) => roomState.gameOverWinnerIds?.includes(p.id)).map((p) => p.nickname).join(', ')}
-        </div>
-      )}
-
       <div className={`reveal-outcome ${result.wasImpostorEliminated ? 'outcome-good' : 'outcome-bad'}`}>
         {result.impostorGuessedWord ? (
           <h2>🎭 L&apos;impostore ha scritto la parola segreta! L&apos;impostore vince la partita.</h2>
@@ -314,41 +253,36 @@ function RevealSection({ revealing, onLeave, amHost }: { revealing: boolean; onL
 
       <div className="word-reveal-row">
         <div className="word-reveal-card">
-          <span>Parola innocenti</span>
+          <span>La parola</span>
           <strong>{result.innocentWord}</strong>
         </div>
         <div className="word-reveal-card word-reveal-impostor">
-          <span>Parola impostore</span>
-          <strong>{result.impostorWord}</strong>
+          <span>Il suggerimento dell&apos;impostore</span>
+          <strong>{result.impostorHint}</strong>
         </div>
       </div>
 
       <h3>Impostori: {roomState.players.filter((p) => result.impostorIds.includes(p.id)).map((p) => p.nickname).join(', ')}</h3>
 
-      <h3>Voti</h3>
-      <ul className="vote-results">
-        {result.voteResults.map((v) => {
-          const target = roomState.players.find((p) => p.id === v.targetId);
-          return (
-            <li key={v.targetId}>
-              {target?.nickname}: {v.votes} voto/i ({v.voterIds.map((id) => roomState.players.find((p) => p.id === id)?.nickname).join(', ') || 'nessuno'})
-            </li>
-          );
-        })}
-      </ul>
-
-      <h3>Classifica</h3>
-      <ol className="scoreboard">
-        {sortedScoreboard.map((p) => (
-          <li key={p.id}>
-            {p.nickname} — {p.score} pt {result.pointsAwarded[p.id] ? `(+${result.pointsAwarded[p.id]})` : ''}
-          </li>
-        ))}
-      </ol>
+      {result.voteResults.length > 0 && (
+        <>
+          <h3>Voti</h3>
+          <ul className="vote-results">
+            {result.voteResults.map((v) => {
+              const target = roomState.players.find((p) => p.id === v.targetId);
+              return (
+                <li key={v.targetId}>
+                  {target?.nickname}: {v.votes} voto/i ({v.voterIds.map((id) => roomState.players.find((p) => p.id === id)?.nickname).join(', ') || 'nessuno'})
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
 
       {amHost ? (
         <button className="btn btn-primary btn-large" onClick={() => socket.emit('play_again')}>
-          {roomState.gameOverWinnerIds ? '🔄 Nuova partita' : '▶️ Prossimo round'}
+          🔄 Torna alla lobby
         </button>
       ) : (
         <p className="hint">In attesa dell&apos;host…</p>

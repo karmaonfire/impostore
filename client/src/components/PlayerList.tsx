@@ -40,7 +40,6 @@ export default function PlayerList({ players, hostId, myPlayerId, phase, current
             {showVoteStatus && phase === 'voting' && !p.isSpectator && (
               <span className={`badge ${p.hasVoted ? 'badge-ready' : 'badge-notready'}`}>{p.hasVoted ? '🗳️' : '…'}</span>
             )}
-            <span className="player-score">{p.score} pt</span>
             {amHost && onKick && p.id !== myPlayerId && (
               <button className="btn btn-tiny btn-danger" onClick={() => onKick(p.id)} title="Rimuovi giocatore">
                 ✕

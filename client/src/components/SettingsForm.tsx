@@ -1,4 +1,4 @@
-import { ALL_CATEGORIES, CATEGORY_LABELS, Category, Difficulty, RoomSettings, WordMode } from '@shared/types';
+import { ALL_CATEGORIES, CATEGORY_LABELS, Category, Difficulty, RoomSettings } from '@shared/types';
 
 interface Props {
   settings: RoomSettings;
@@ -61,9 +61,8 @@ export default function SettingsForm({ settings, onChange, disabled }: Props) {
       <fieldset>
         <legend>Round e timer</legend>
         <div className="field-row">
-          <NumberField label="Round di indizi" value={settings.clueRounds} min={1} max={6} disabled={disabled} onChange={(v) => onChange({ clueRounds: v })} />
-          <NumberField label="Tempo indizio (sec)" value={settings.clueTimeSec} min={10} max={180} disabled={disabled} onChange={(v) => onChange({ clueTimeSec: v })} />
-          <NumberField label="Tempo discussione (sec)" value={settings.discussionTimeSec} min={0} max={600} disabled={disabled} onChange={(v) => onChange({ discussionTimeSec: v })} />
+          <NumberField label="Numero di round" value={settings.clueRounds} min={1} max={6} disabled={disabled} onChange={(v) => onChange({ clueRounds: v })} />
+          <NumberField label="Tempo per parola (sec)" value={settings.clueTimeSec} min={10} max={180} disabled={disabled} onChange={(v) => onChange({ clueTimeSec: v })} />
           <NumberField label="Tempo votazione (sec)" value={settings.votingTimeSec} min={10} max={180} disabled={disabled} onChange={(v) => onChange({ votingTimeSec: v })} />
         </div>
       </fieldset>
@@ -77,14 +76,6 @@ export default function SettingsForm({ settings, onChange, disabled }: Props) {
       </fieldset>
 
       <fieldset>
-        <legend>Durata partita</legend>
-        <div className="field-row">
-          <NumberField label="Punti per vincere" value={settings.pointsToWin} min={3} max={100} disabled={disabled} onChange={(v) => onChange({ pointsToWin: v })} />
-          <NumberField label="Round massimi (0 = illimitati)" value={settings.maxRounds} min={0} max={50} disabled={disabled} onChange={(v) => onChange({ maxRounds: v })} />
-        </div>
-      </fieldset>
-
-      <fieldset>
         <legend>Parole</legend>
         <div className="field-row">
           <label className="field">
@@ -93,13 +84,6 @@ export default function SettingsForm({ settings, onChange, disabled }: Props) {
               <option value="easy">Facile</option>
               <option value="normal">Normale</option>
               <option value="hard">Difficile</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Modalità parole</span>
-            <select disabled={disabled} value={settings.wordMode} onChange={(e) => onChange({ wordMode: e.target.value as WordMode })}>
-              <option value="far">Molto diverse (classica)</option>
-              <option value="close">Più vicine (avanzata)</option>
             </select>
           </label>
         </div>

@@ -47,29 +47,23 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   misc: 'Varie',
 };
 
-export type WordMode = 'far' | 'close';
-
-export type GamePhase = 'lobby' | 'clue' | 'discussion' | 'voting' | 'elimination' | 'reveal' | 'gameover';
+export type GamePhase = 'lobby' | 'clue' | 'voting' | 'elimination' | 'reveal';
 
 export interface RoomSettings {
   minPlayers: number;
   maxPlayers: number;
   numImpostors: number;
+  /** How many rounds (one word each) every surviving player gets before a vote. */
   clueRounds: number;
   clueTimeSec: number;
-  discussionTimeSec: number;
   votingTimeSec: number;
   allowSelfVote: boolean;
   allowTie: boolean;
-  pointsToWin: number;
   difficulty: Difficulty;
   categories: Category[] | 'random';
-  wordMode: WordMode;
   isPublic: boolean;
   allowLateJoin: boolean;
   spectatorMode: boolean;
-  /** 0 = unlimited (match ends only via pointsToWin). Otherwise match ends after this many full rounds. */
-  maxRounds: number;
 }
 
 export const DEFAULT_SETTINGS: RoomSettings = {
@@ -78,18 +72,14 @@ export const DEFAULT_SETTINGS: RoomSettings = {
   numImpostors: 1,
   clueRounds: 2,
   clueTimeSec: 30,
-  discussionTimeSec: 60,
   votingTimeSec: 30,
   allowSelfVote: false,
   allowTie: true,
-  pointsToWin: 10,
   difficulty: 'normal',
   categories: 'random',
-  wordMode: 'far',
   isPublic: false,
   allowLateJoin: true,
   spectatorMode: true,
-  maxRounds: 0,
 };
 
 export interface PublicPlayer {
@@ -103,7 +93,6 @@ export interface PublicPlayer {
   isBot: boolean;
   isSpectator: boolean;
   isEliminated: boolean;
-  score: number;
   hasVoted: boolean;
   hasSubmittedClue: boolean;
   joinedLate: boolean;
@@ -127,11 +116,11 @@ export interface RoundResult {
   wasImpostorEliminated: boolean;
   impostorGuessedWord: boolean;
   innocentWord: string;
-  impostorWord: string;
+  /** The related hint the impostor(s) were secretly given — not a rival "word". */
+  impostorHint: string;
   category: Category;
   voteResults: VoteResultEntry[];
   eliminationHistory: { playerId: string; cycle: number }[];
-  pointsAwarded: Record<string, number>;
   tie: boolean;
   noElimination: boolean;
 }
@@ -151,7 +140,6 @@ export interface PublicRoomState {
   phase: GamePhase;
   settings: RoomSettings;
   players: PublicPlayer[];
-  matchRound: number;
   eliminationCycle: number;
   clueGiro: number;
   totalClueRounds: number;
@@ -161,21 +149,13 @@ export interface PublicRoomState {
   lastResult: RoundResult | null;
   interimElimination: InterimElimination | null;
   category: Category | null;
-  gameOverWinnerIds: string[] | null;
-}
-
-export interface ChatMessage {
-  id: string;
-  playerId: string;
-  nickname: string;
-  text: string;
-  ts: number;
 }
 
 export interface YourWordPayload {
   word: string;
   role: 'innocent' | 'impostor';
-  category: Category;
+  /** Only sent to innocents — the impostor must never learn the category. */
+  category?: Category;
 }
 
 export interface CreateRoomPayload {
@@ -206,7 +186,6 @@ export interface ClientToServerEvents {
   submit_vote: (targetId: string) => void;
   play_again: () => void;
   kick_player: (playerId: string) => void;
-  send_chat_message: (text: string) => void;
 }
 
 export interface ServerToClientEvents {
@@ -214,7 +193,6 @@ export interface ServerToClientEvents {
   your_word: (payload: YourWordPayload) => void;
   error_message: (msg: string) => void;
   kicked: () => void;
-  chat_message: (msg: ChatMessage) => void;
 }
 
 export const MIN_PLAYERS_HARD_FLOOR = 3;

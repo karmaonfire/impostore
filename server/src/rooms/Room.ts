@@ -13,8 +13,7 @@ import {
   VoteResultEntry,
   YourWordPayload,
 } from '../../../shared/types.js';
-import { pairHistoryKey, pickWordPair } from '../../../shared/wordBank.js';
-import { computeRoundScore, POINTS_IMPOSTOR_ESCAPE, POINTS_IMPOSTOR_GUESS_BONUS } from '../game/scoring.js';
+import { pickWordPair } from '../../../shared/wordBank.js';
 import { generatePlayerId, generateToken, randomAvatar } from '../utils/id.js';
 
 export interface InternalPlayer {
@@ -29,7 +28,6 @@ export interface InternalPlayer {
   isBot: boolean;
   isSpectator: boolean;
   eliminated: boolean;
-  score: number;
   role: 'innocent' | 'impostor' | null;
   word: string | null;
   socketId: string | null;
@@ -38,7 +36,7 @@ export interface InternalPlayer {
 }
 
 const DISCONNECT_GRACE_MS = 45_000;
-const RECENT_PAIR_HISTORY = 40;
+const RECENT_WORD_HISTORY = 40;
 const MAX_CLUE_LENGTH = 60;
 const ELIMINATION_ANNOUNCE_SEC = 5;
 
@@ -84,10 +82,9 @@ export class Room {
   players = new Map<string, InternalPlayer>();
   phase: GamePhase = 'lobby';
 
-  matchRound = 0;
   /** Living roster for the current match — shrinks as players are voted out. */
   turnOrder: string[] = [];
-  /** Full roster dealt into the current match (never shrinks) — used for end-of-match scoring. */
+  /** Full roster dealt into the current match (never shrinks). */
   matchPlayerIds: string[] = [];
   eliminationCycle = 0;
   clueGiro = 0;
@@ -98,16 +95,15 @@ export class Room {
 
   impostorIds: string[] = [];
   innocentWord: string | null = null;
-  impostorWord: string | null = null;
+  impostorHint: string | null = null;
   category: Category | null = null;
-  recentPairs: string[] = [];
+  recentWords: string[] = [];
 
   phaseEndsAt: number | null = null;
   phaseTimer: ReturnType<typeof setTimeout> | null = null;
 
   lastResult: RoundResult | null = null;
   interimElimination: InterimElimination | null = null;
-  gameOverWinnerIds: string[] | null = null;
 
   private botCounter = 0;
   private avatarSeed = 0;
@@ -129,10 +125,7 @@ export class Room {
       numImpostors,
       clueRounds: clamp(Math.round(input.clueRounds), 1, 6),
       clueTimeSec: clamp(Math.round(input.clueTimeSec), 10, 180),
-      discussionTimeSec: clamp(Math.round(input.discussionTimeSec), 0, 600),
       votingTimeSec: clamp(Math.round(input.votingTimeSec), 10, 180),
-      pointsToWin: clamp(Math.round(input.pointsToWin), 3, 100),
-      maxRounds: clamp(Math.round(input.maxRounds ?? 0), 0, 50),
     };
   }
 
@@ -151,8 +144,6 @@ export class Room {
     this.clearPhaseTimer();
     const clamped = Math.max(0, seconds);
     this.phaseEndsAt = clamped > 0 ? Date.now() + clamped * 1000 : null;
-    // Even a "0 seconds" phase (e.g. discussion disabled) must still fire on
-    // the next tick rather than stall forever — schedule it, don't skip it.
     this.phaseTimer = setTimeout(() => {
       this.phaseTimer = null;
       onExpire();
@@ -204,7 +195,6 @@ export class Room {
       isBot: false,
       isSpectator,
       eliminated: false,
-      score: 0,
       role: null,
       word: null,
       socketId: null,
@@ -298,7 +288,6 @@ export class Room {
     this.phase = 'lobby';
     this.lastResult = null;
     this.interimElimination = null;
-    this.gameOverWinnerIds = null;
     for (const p of this.players.values()) {
       p.isReady = p.isHost;
       p.role = null;
@@ -347,7 +336,6 @@ export class Room {
       isBot: true,
       isSpectator: false,
       eliminated: false,
-      score: 0,
       role: null,
       word: null,
       socketId: null,
@@ -396,17 +384,11 @@ export class Room {
       this.cb.sendError(this, requesterId, check.error);
       return;
     }
-    for (const p of this.players.values()) {
-      p.score = 0;
-    }
-    this.gameOverWinnerIds = null;
-    this.matchRound = 0;
-    this.beginRound();
+    this.beginMatch();
   }
 
-  /** Starts a brand new match: fresh word pair, full roster, everyone un-eliminated. */
-  private beginRound() {
-    this.matchRound += 1;
+  /** Starts a brand new match: fresh word/hint, full roster, everyone un-eliminated. */
+  private beginMatch() {
     const active = this.activePlayers;
     const shuffled = shuffle(active.map((p) => p.id));
     this.impostorIds = shuffled.slice(0, this.settings.numImpostors);
@@ -415,14 +397,13 @@ export class Room {
     const picked = pickWordPair({
       categories: this.settings.categories,
       difficulty: this.settings.difficulty,
-      wordMode: this.settings.wordMode,
-      recentPairs: this.recentPairs,
+      recentWords: this.recentWords,
     });
     this.innocentWord = picked.innocentWord;
-    this.impostorWord = picked.impostorWord;
+    this.impostorHint = picked.impostorHint;
     this.category = picked.category;
-    this.recentPairs.unshift(pairHistoryKey(picked.innocentWord, picked.impostorWord));
-    this.recentPairs = this.recentPairs.slice(0, RECENT_PAIR_HISTORY);
+    this.recentWords.unshift(picked.innocentWord.toLowerCase());
+    this.recentWords = this.recentWords.slice(0, RECENT_WORD_HISTORY);
 
     for (const id of innocentIds) {
       const p = this.players.get(id)!;
@@ -433,7 +414,7 @@ export class Room {
     for (const id of this.impostorIds) {
       const p = this.players.get(id)!;
       p.role = 'impostor';
-      p.word = picked.impostorWord;
+      p.word = picked.impostorHint;
       p.eliminated = false;
     }
 
@@ -451,7 +432,12 @@ export class Room {
 
     for (const p of this.players.values()) {
       if (!p.isSpectator && p.role && p.word) {
-        this.cb.sendYourWord(this, p.id, { word: p.word, role: p.role, category: this.category! });
+        // The impostor never learns the category — only innocents do.
+        this.cb.sendYourWord(this, p.id, {
+          word: p.word,
+          role: p.role,
+          category: p.role === 'innocent' ? this.category! : undefined,
+        });
       }
     }
 
@@ -514,7 +500,7 @@ export class Room {
       this.clueGiro += 1;
       this.currentTurnIndex = 0;
       if (this.clueGiro > this.settings.clueRounds) {
-        this.beginDiscussion();
+        this.beginVoting();
         return;
       }
     }
@@ -536,15 +522,6 @@ export class Room {
     }
   }
 
-  private beginDiscussion() {
-    this.phase = 'discussion';
-    this.schedulePhaseTimeout(this.settings.discussionTimeSec, () => {
-      this.beginVoting();
-      this.touch();
-    });
-    this.touch();
-  }
-
   private beginVoting() {
     this.phase = 'voting';
     this.votes.clear();
@@ -555,6 +532,7 @@ export class Room {
       const p = this.players.get(id);
       if (p?.isBot) this.cb.scheduleBotVote(this, id);
     }
+    this.touch();
   }
 
   submitVote(voterId: string, targetId: string) {
@@ -631,15 +609,9 @@ export class Room {
       votes: votesReceived[id] ?? 0,
       voterIds: voterMap[id] ?? [],
     }));
-    const votesObj: Record<string, string> = Object.fromEntries(this.votes.entries());
 
-    if (allImpostorsGone) {
-      this.endMatch({ eliminatedId, tie, noElimination, votesReceived, voteResults, votesObj });
-      return;
-    }
-
-    if (remainingInnocents <= 1) {
-      this.endMatch({ eliminatedId, tie, noElimination, votesReceived, voteResults, votesObj });
+    if (allImpostorsGone || remainingInnocents <= 1) {
+      this.endMatch({ eliminatedId, tie, noElimination, voteResults, wasImpostorEliminated: allImpostorsGone });
       return;
     }
 
@@ -663,66 +635,35 @@ export class Room {
     eliminatedId: string | null;
     tie: boolean;
     noElimination: boolean;
-    votesReceived: Record<string, number>;
     voteResults: VoteResultEntry[];
-    votesObj: Record<string, string>;
+    wasImpostorEliminated: boolean;
   }) {
-    const innocentIds = this.matchPlayerIds.filter((id) => !this.impostorIds.includes(id));
-    const { pointsAwarded, wasImpostorEliminated } = computeRoundScore(
-      {
-        innocentIds,
-        impostorIds: this.impostorIds,
-        eliminatedId: params.eliminatedId,
-        votesReceived: params.votesReceived,
-        noElimination: params.noElimination,
-      },
-      params.votesObj,
-    );
-
-    for (const [playerId, pts] of Object.entries(pointsAwarded)) {
-      const p = this.players.get(playerId);
-      if (p) p.score += pts;
-    }
-
     this.finalizeMatch({
       impostorIds: [...this.impostorIds],
       eliminatedId: params.eliminatedId,
-      wasImpostorEliminated,
+      wasImpostorEliminated: params.wasImpostorEliminated,
       impostorGuessedWord: false,
       innocentWord: this.innocentWord!,
-      impostorWord: this.impostorWord!,
+      impostorHint: this.impostorHint!,
       category: this.category!,
       voteResults: params.voteResults,
       eliminationHistory: [...this.eliminationHistory],
-      pointsAwarded,
       tie: params.tie,
       noElimination: params.noElimination,
     });
   }
 
   private endMatchImpostorGuessed(playerId: string) {
-    const pointsAwarded: Record<string, number> = {};
-    for (const id of this.impostorIds) {
-      pointsAwarded[id] = (pointsAwarded[id] ?? 0) + POINTS_IMPOSTOR_ESCAPE;
-    }
-    pointsAwarded[playerId] = (pointsAwarded[playerId] ?? 0) + POINTS_IMPOSTOR_GUESS_BONUS;
-
-    for (const [pid, pts] of Object.entries(pointsAwarded)) {
-      const p = this.players.get(pid);
-      if (p) p.score += pts;
-    }
-
     this.finalizeMatch({
       impostorIds: [...this.impostorIds],
       eliminatedId: null,
       wasImpostorEliminated: false,
       impostorGuessedWord: true,
       innocentWord: this.innocentWord!,
-      impostorWord: this.impostorWord!,
+      impostorHint: this.impostorHint!,
       category: this.category!,
       voteResults: [],
       eliminationHistory: [...this.eliminationHistory],
-      pointsAwarded,
       tie: false,
       noElimination: false,
     });
@@ -731,39 +672,22 @@ export class Room {
   private finalizeMatch(result: RoundResult) {
     this.lastResult = result;
     this.interimElimination = null;
-
-    const reachedPoints = [...this.players.values()].some((p) => p.score >= this.settings.pointsToWin);
-    const reachedMaxRounds = this.settings.maxRounds > 0 && this.matchRound >= this.settings.maxRounds;
-
-    if (reachedPoints || reachedMaxRounds) {
-      const topScore = Math.max(...[...this.players.values()].map((p) => p.score));
-      this.gameOverWinnerIds = [...this.players.values()].filter((p) => p.score === topScore).map((p) => p.id);
-    } else {
-      this.gameOverWinnerIds = null;
-    }
-
     this.phase = 'reveal';
     this.phaseEndsAt = null;
     this.touch();
   }
 
+  /** The only way forward from a finished match: back to the lobby to ready up again. */
   playAgain(requesterId: string) {
     if (requesterId !== this.hostId) return;
-    if (this.phase === 'reveal' && !this.gameOverWinnerIds) {
-      this.beginRound();
-    } else if (this.phase === 'reveal' && this.gameOverWinnerIds) {
-      this.resetMatch();
-    } else if (this.phase === 'gameover') {
-      this.resetMatch();
-    }
+    if (this.phase !== 'reveal') return;
+    this.resetToLobby();
   }
 
-  private resetMatch() {
+  private resetToLobby() {
     this.phase = 'lobby';
     this.lastResult = null;
     this.interimElimination = null;
-    this.gameOverWinnerIds = null;
-    this.matchRound = 0;
     this.eliminationCycle = 0;
     this.clueGiro = 0;
     this.clues = [];
@@ -771,7 +695,6 @@ export class Room {
     this.eliminationHistory = [];
     this.impostorIds = [];
     for (const p of this.players.values()) {
-      p.score = 0;
       p.role = null;
       p.word = null;
       p.eliminated = false;
@@ -794,21 +717,28 @@ export class Room {
       isBot: p.isBot,
       isSpectator: p.isSpectator,
       isEliminated: p.eliminated,
-      score: p.score,
       hasVoted: this.votes.has(p.id),
       hasSubmittedClue: this.clues.some((c) => c.playerId === p.id && c.round === this.clueGiro),
       joinedLate: p.joinedLate,
     };
   }
 
-  toPublicState(): PublicRoomState {
+  /**
+   * Per-viewer state. The impostor must never learn the category while the
+   * match is live, so unlike the rest of this object it cannot be computed
+   * once and broadcast identically to everyone — it depends on who's asking.
+   */
+  toPublicState(forPlayerId?: string): PublicRoomState {
+    const viewer = forPlayerId ? this.players.get(forPlayerId) : undefined;
+    const hideCategoryFromViewer = viewer?.role === 'impostor';
+    const liveCategory = this.phase === 'clue' || this.phase === 'voting';
+
     return {
       code: this.code,
       hostId: this.hostId,
       phase: this.phase,
       settings: this.settings,
       players: [...this.players.values()].map((p) => this.toPublicPlayer(p)),
-      matchRound: this.matchRound,
       eliminationCycle: this.eliminationCycle,
       clueGiro: this.clueGiro,
       totalClueRounds: this.settings.clueRounds,
@@ -817,8 +747,7 @@ export class Room {
       phaseEndsAt: this.phaseEndsAt,
       lastResult: this.lastResult,
       interimElimination: this.interimElimination,
-      category: this.phase === 'clue' || this.phase === 'discussion' || this.phase === 'voting' ? this.category : this.lastResult?.category ?? null,
-      gameOverWinnerIds: this.gameOverWinnerIds,
+      category: liveCategory ? (hideCategoryFromViewer ? null : this.category) : this.lastResult?.category ?? null,
     };
   }
 

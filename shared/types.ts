@@ -125,13 +125,14 @@ export interface RoundResult {
   noElimination: boolean;
 }
 
-/** Broadcast when a vote doesn't end the match — deliberately bare: no words, no role info. */
+/** Broadcast when a vote doesn't end the match — bare of words/roles, but does show who voted for whom so the table can see why it was inconclusive. */
 export interface InterimElimination {
   cycle: number;
   eliminatedId: string | null;
   tie: boolean;
   noElimination: boolean;
   voteCounts: Record<string, number>;
+  voterIds: Record<string, string[]>;
 }
 
 export interface PublicRoomState {

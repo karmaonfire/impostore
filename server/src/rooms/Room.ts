@@ -615,14 +615,15 @@ export class Room {
       return;
     }
 
-    // Inconclusive: continue the same word with the survivors. Never reveal
-    // words or role information here — only that this vote didn't end it.
+    // Inconclusive: continue the same word with the survivors. Words/roles
+    // stay hidden, but the vote breakdown is shown so the table can see why.
     this.interimElimination = {
       cycle: this.eliminationCycle,
       eliminatedId,
       tie,
       noElimination,
       voteCounts: votesReceived,
+      voterIds: voterMap,
     };
     this.phase = 'elimination';
     this.schedulePhaseTimeout(ELIMINATION_ANNOUNCE_SEC, () => {

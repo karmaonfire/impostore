@@ -132,6 +132,7 @@ export interface InterimElimination {
   tie: boolean;
   noElimination: boolean;
   voteCounts: Record<string, number>;
+  voterIds: Record<string, string[]>;
 }
 
 export interface PublicRoomState {
@@ -148,6 +149,8 @@ export interface PublicRoomState {
   phaseEndsAt: number | null;
   lastResult: RoundResult | null;
   interimElimination: InterimElimination | null;
+  /** Live running vote tally while voting is open — counts only, no voter identities. */
+  liveVoteCounts: Record<string, number> | null;
   category: Category | null;
 }
 

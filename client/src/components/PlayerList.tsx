@@ -8,10 +8,11 @@ interface Props {
   currentTurnPlayerId?: string | null;
   showReady?: boolean;
   showVoteStatus?: boolean;
+  liveVoteCounts?: Record<string, number> | null;
   onKick?: (playerId: string) => void;
 }
 
-export default function PlayerList({ players, hostId, myPlayerId, phase, currentTurnPlayerId, showReady, showVoteStatus, onKick }: Props) {
+export default function PlayerList({ players, hostId, myPlayerId, phase, currentTurnPlayerId, showReady, showVoteStatus, liveVoteCounts, onKick }: Props) {
   const amHost = hostId === myPlayerId;
   return (
     <ul className="player-list">
@@ -37,8 +38,13 @@ export default function PlayerList({ players, hostId, myPlayerId, phase, current
             {showReady && phase === 'lobby' && !p.isSpectator && (
               <span className={`badge ${p.isReady ? 'badge-ready' : 'badge-notready'}`}>{p.isReady ? '✅ Pronto' : '⏳'}</span>
             )}
+            {showVoteStatus && phase === 'voting' && !p.isSpectator && !!liveVoteCounts?.[p.id] && (
+              <span className="badge badge-vote-count" title="Voti ricevuti finora">
+                🗳️ {liveVoteCounts[p.id]}
+              </span>
+            )}
             {showVoteStatus && phase === 'voting' && !p.isSpectator && (
-              <span className={`badge ${p.hasVoted ? 'badge-ready' : 'badge-notready'}`}>{p.hasVoted ? '🗳️' : '…'}</span>
+              <span className={`badge ${p.hasVoted ? 'badge-ready' : 'badge-notready'}`}>{p.hasVoted ? '✅' : '…'}</span>
             )}
             {amHost && onKick && p.id !== myPlayerId && (
               <button className="btn btn-tiny btn-danger" onClick={() => onKick(p.id)} title="Rimuovi giocatore">

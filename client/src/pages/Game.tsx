@@ -71,6 +71,7 @@ export default function Game({ onLeave }: { onLeave: () => void }) {
             phase={roomState.phase}
             currentTurnPlayerId={roomState.currentTurnPlayerId}
             showVoteStatus
+            liveVoteCounts={roomState.liveVoteCounts}
           />
         </aside>
 
@@ -137,6 +138,9 @@ export default function Game({ onLeave }: { onLeave: () => void }) {
                             {p.avatarEmoji}
                           </span>
                           {p.nickname}
+                          {!!roomState.liveVoteCounts?.[p.id] && (
+                            <span className="vote-count-badge">{roomState.liveVoteCounts[p.id]}</span>
+                          )}
                         </button>
                       ))}
                   </div>
@@ -145,6 +149,8 @@ export default function Game({ onLeave }: { onLeave: () => void }) {
                   </button>
                 </>
               )}
+              <h3>Parole dette</h3>
+              <WordRecap clues={roomState.clues} players={roomState.players} />
             </section>
           )}
 
@@ -188,12 +194,35 @@ function ClueBoard({ clues, players }: { clues: { playerId: string; round: numbe
   );
 }
 
+function WordRecap({ clues, players }: { clues: { playerId: string; round: number; text: string }[]; players: { id: string; nickname: string }[] }) {
+  if (clues.length === 0) return <p className="hint">Nessuna parola detta.</p>;
+  const order: string[] = [];
+  const byPlayer = new Map<string, string[]>();
+  for (const c of clues) {
+    if (!byPlayer.has(c.playerId)) {
+      byPlayer.set(c.playerId, []);
+      order.push(c.playerId);
+    }
+    byPlayer.get(c.playerId)!.push(c.text);
+  }
+  return (
+    <ul className="word-recap">
+      {order.map((playerId) => (
+        <li key={playerId}>
+          <strong>{players.find((p) => p.id === playerId)?.nickname ?? '???'}:</strong> {byPlayer.get(playerId)!.join(', ')}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function EliminationSection() {
   const roomState = useGameStore((s) => s.roomState)!;
   const interim = roomState.interimElimination;
   if (!interim) return null;
   const eliminated = roomState.players.find((p) => p.id === interim.eliminatedId);
   const remaining = roomState.players.filter((p) => !p.isSpectator && !p.isEliminated).length;
+  const votedTargets = Object.keys(interim.voteCounts).filter((id) => (interim.voteCounts[id] ?? 0) > 0);
 
   return (
     <section className="reveal-section">
@@ -205,6 +234,24 @@ function EliminationSection() {
         )}
         <p className="hint">Non era l&apos;ultimo impostore: la partita continua con la stessa parola ({remaining} giocatori rimasti)…</p>
       </div>
+
+      {votedTargets.length > 0 && (
+        <>
+          <h3>Voti</h3>
+          <ul className="vote-results">
+            {votedTargets.map((targetId) => {
+              const target = roomState.players.find((p) => p.id === targetId);
+              const voters = interim.voterIds[targetId] ?? [];
+              return (
+                <li key={targetId}>
+                  {target?.nickname}: {interim.voteCounts[targetId]} voto/i ({voters.map((id) => roomState.players.find((p) => p.id === id)?.nickname).join(', ') || 'nessuno'})
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+
       <div className="reveal-countdown">
         <span className="reveal-countdown-dots">🔄</span>
       </div>

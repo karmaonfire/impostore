@@ -623,6 +623,7 @@ export class Room {
       tie,
       noElimination,
       voteCounts: votesReceived,
+      voterIds: voterMap,
     };
     this.phase = 'elimination';
     this.schedulePhaseTimeout(ELIMINATION_ANNOUNCE_SEC, () => {
@@ -747,8 +748,18 @@ export class Room {
       phaseEndsAt: this.phaseEndsAt,
       lastResult: this.lastResult,
       interimElimination: this.interimElimination,
+      liveVoteCounts: this.phase === 'voting' ? this.liveVoteTally() : null,
       category: liveCategory ? (hideCategoryFromViewer ? null : this.category) : this.lastResult?.category ?? null,
     };
+  }
+
+  private liveVoteTally(): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const id of this.turnOrder) counts[id] = 0;
+    for (const targetId of this.votes.values()) {
+      counts[targetId] = (counts[targetId] ?? 0) + 1;
+    }
+    return counts;
   }
 
   getSocketId(playerId: string): string | null {

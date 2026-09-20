@@ -623,7 +623,6 @@ export class Room {
       tie,
       noElimination,
       voteCounts: votesReceived,
-      voterIds: voterMap,
     };
     this.phase = 'elimination';
     this.schedulePhaseTimeout(ELIMINATION_ANNOUNCE_SEC, () => {

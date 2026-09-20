@@ -132,7 +132,6 @@ export interface InterimElimination {
   tie: boolean;
   noElimination: boolean;
   voteCounts: Record<string, number>;
-  voterIds: Record<string, string[]>;
 }
 
 export interface PublicRoomState {

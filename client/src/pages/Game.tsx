@@ -222,7 +222,6 @@ function EliminationSection() {
   if (!interim) return null;
   const eliminated = roomState.players.find((p) => p.id === interim.eliminatedId);
   const remaining = roomState.players.filter((p) => !p.isSpectator && !p.isEliminated).length;
-  const votedTargets = Object.keys(interim.voteCounts).filter((id) => (interim.voteCounts[id] ?? 0) > 0);
 
   return (
     <section className="reveal-section">
@@ -234,24 +233,6 @@ function EliminationSection() {
         )}
         <p className="hint">Non era l&apos;ultimo impostore: la partita continua con la stessa parola ({remaining} giocatori rimasti)…</p>
       </div>
-
-      {votedTargets.length > 0 && (
-        <>
-          <h3>Voti</h3>
-          <ul className="vote-results">
-            {votedTargets.map((targetId) => {
-              const target = roomState.players.find((p) => p.id === targetId);
-              const voters = interim.voterIds[targetId] ?? [];
-              return (
-                <li key={targetId}>
-                  {target?.nickname}: {interim.voteCounts[targetId]} voto/i ({voters.map((id) => roomState.players.find((p) => p.id === id)?.nickname).join(', ') || 'nessuno'})
-                </li>
-              );
-            })}
-          </ul>
-        </>
-      )}
-
       <div className="reveal-countdown">
         <span className="reveal-countdown-dots">🔄</span>
       </div>
